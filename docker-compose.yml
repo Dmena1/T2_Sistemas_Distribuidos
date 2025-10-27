@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ds_user
+      POSTGRES_PASSWORD: ds_pass
+      POSTGRES_DB: ds_db
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  flink-jobmanager:
+    image: flink:1.17-scala_2.12-java11
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    depends_on:
+      - kafka
+
+  flink-taskmanager:
+    image: flink:1.17-scala_2.12-java11
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+
+  services:
+    build: ./services
+    container_name: ds_services
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=ds_db
+      - POSTGRES_USER=ds_user
+      - POSTGRES_PASSWORD=ds_pass
+    volumes:
+      - ./services:/app
+    command: bash -c "python /app/traffic_generator.py & python /app/llm_worker.py & python /app/retry_worker.py & python /app/storage_consumer.py"
+    ports:
+      - "5000:5000"
