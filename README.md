@@ -1,23 +1,15 @@
-# Tarea2 - Sistemas Distribuidos: Pipeline con Kafka y Flink
+# Tarea 2 – Pipeline Asíncrono con Kafka y Flink
+
+Este proyecto implementa una arquitectura desacoplada para comparar respuestas de un LLM con un dataset histórico (Yahoo! Answers). Incorpora Kafka para la orquestación asíncrona, manejo de errores con reintentos diferenciados y un feedback loop de calidad con Flink (simulado y real opcional).
 
 ## Requisitos
 
-- Docker & docker-compose
-- (Opcional) Java si usarás Flink localmente
+- Docker y docker-compose
 
-## Ejecución (modo prueba)
+## Cómo ejecutar
 
-1. Construir y levantar servicios:
-   docker-compose up --build
+1. Levantar todo:
 
-2. Ver logs:
-   docker-compose logs -f services
-
-3. La arquitectura: Kafka (9092), Zookeeper (2181), Flink (8081), Postgres (5432)
-4. Revisar la tabla `answers` en Postgres para ver las respuestas persistidas.
-
-## Notas
-
-- Ajusta `traffic_generator.py` para usar tu dataset (Tarea1).
-- Sustituye la función `score_function` en `flink/flink_job.py` por la función que desarrollaste en la Tarea1.
-- Para producción, separa cada worker en su propio servicio Docker.
+   ```bash
+   docker-compose up --build -d
+   ```

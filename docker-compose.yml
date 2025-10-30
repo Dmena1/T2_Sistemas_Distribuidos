@@ -7,14 +7,14 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - "2181:2181"
+      - "22181:2181"
 
   kafka:
     image: confluentinc/cp-kafka:7.6.1
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "29092:9092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -25,7 +25,6 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
-
   postgres:
     image: postgres:15
     environment:
@@ -35,33 +34,43 @@ services:
     volumes:
       - ./sql:/docker-entrypoint-initdb.d
     ports:
-      - "5432:5432"
+      - "55432:5432"
 
-  flink-jobmanager:
-    image: flink:1.17-scala_2.12-java11
-    command: jobmanager
-    ports:
-      - "8081:8081"
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: flink-jobmanager
+  kafka-wait:
+    image: confluentinc/cp-kafka:7.6.1
     depends_on:
       - kafka
+    command: bash -c "echo 'Waiting for Kafka to be ready...'; sleep 30; echo 'Kafka should be ready now'"
+    profiles: ["wait"]
 
-  flink-taskmanager:
-    image: flink:1.17-scala_2.12-java11
-    command: taskmanager
-    depends_on:
-      - flink-jobmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: flink-jobmanager
-
-  services:
+  llm-worker:
     build: ./services
-    container_name: ds_services
+    container_name: llm_worker
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services:/app
+    command: bash -c "echo 'LLM Worker waiting for Kafka...'; sleep 35; echo 'Starting LLM Worker'; python llm_worker.py"
+
+  retry-worker:
+    build: ./services
+    container_name: retry_worker
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - MAX_ATTEMPTS=5
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services:/app
+    command: bash -c "echo 'Retry Worker waiting for Kafka...'; sleep 40; echo 'Starting Retry Worker'; python retry_worker.py"
+
+  storage-consumer:
+    build: ./services
+    container_name: storage_consumer
     depends_on:
       - kafka
       - postgres
@@ -71,8 +80,75 @@ services:
       - POSTGRES_DB=ds_db
       - POSTGRES_USER=ds_user
       - POSTGRES_PASSWORD=ds_pass
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./services:/app
-    command: bash -c "python /app/traffic_generator.py & python /app/llm_worker.py & python /app/retry_worker.py & python /app/storage_consumer.py"
+    command: bash -c "echo 'Storage Consumer waiting for services...'; sleep 45; echo 'Starting Storage Consumer'; python storage_consumer.py"
+
+  query-gateway:
+    build: ./services
+    container_name: query_gateway
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=ds_db
+      - POSTGRES_USER=ds_user
+      - POSTGRES_PASSWORD=ds_pass
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services:/app
+    command: bash -c "echo 'Query Gateway waiting for services...'; sleep 40; echo 'Starting Query Gateway'; python query_gateway.py"
+
+  flink-simulator:
+    build: ./services
+    container_name: flink_simulator
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - SCORE_UMBRAL=0.3
+      - MAX_RETRIES=3
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services:/app
+    command: bash -c "echo 'Flink Simulator waiting for Kafka...'; sleep 50; echo 'Starting Flink Simulator'; python flink_simulator.py"
+
+  traffic-generator:
+    build: ./services
+    container_name: traffic_generator
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services:/app
+    command: bash -c "echo 'Traffic Generator waiting for Kafka...'; sleep 55; echo 'Starting Traffic Generator'; python traffic_generator.py"
+
+  # Flink real (opcional): levantar clúster para ejecutar pyflink
+  flink-jobmanager:
+    image: flink:1.17.2-scala_2.12
+    container_name: flink_jobmanager
     ports:
-      - "5000:5000"
+      - "8081:8081"
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+    command: jobmanager
+    volumes:
+      - ./flink-jars:/opt/flink/lib
+    depends_on:
+      - kafka
+
+  flink-taskmanager:
+    image: flink:1.17.2-scala_2.12
+    container_name: flink_taskmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+    command: taskmanager
+    volumes:
+      - ./flink-jars:/opt/flink/lib
+    depends_on:
+      - flink-jobmanager

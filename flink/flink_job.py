@@ -1,21 +1,15 @@
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.datastream.connectors import FlinkKafkaConsumer, FlinkKafkaProducer
+from scoring import combined_score
 import json
 import os
 
 KAFKA = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
-UMBRAL = float(os.getenv("SCORE_UMBRAL", "0.7"))
+UMBRAL = float(os.getenv("SCORE_UMBRAL", "0.0"))
 
-def score_function(question, answer):
-    # Aquí pones la función de scoring de la Tarea1.
-    # Ejemplo dummy: longitud relativa, etc.
-    # Debes reemplazar por tu scoring real.
-    q_words = len(question.split())
-    a_words = len(answer.split())
-    if a_words == 0:
-        return 0.0
-    score = min(1.0, a_words / (q_words + 1))
+def score_function(llm_answer, best_answer):
+    score, _, _ = combined_score(llm_answer, best_answer)
     return score
 
 def main():
@@ -49,12 +43,11 @@ def main():
 
     def process_line(line):
         m = json.loads(line)
-        score = score_function(m["question"], m["answer"])
+        score = score_function(m["answer"], m["best_answer"])
         m["score"] = score
         if score >= UMBRAL:
             return ("persist", json.dumps(m))
         else:
-            # incrementar attempts y decidir reintento
             m["attempts"] = m.get("attempts", 0) + 1
             return ("retry", json.dumps(m))
 
