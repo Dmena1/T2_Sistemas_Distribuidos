@@ -7,8 +7,12 @@ Este proyecto implementa una arquitectura desacoplada para comparar respuestas d
 - Docker y docker-compose
 
 ## Cómo ejecutar
+1.-Clonar repositorio:
+```bash
+   git clone "url del repositorio"
+   ```
 
-1. Levantar todo:
+2. Levantar todo:
 
    ```bash
    docker-compose up --build -d
