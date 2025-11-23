@@ -41,7 +41,7 @@ services:
     depends_on:
       - kafka
     command: bash -c "echo 'Waiting for Kafka to be ready...'; sleep 30; echo 'Kafka should be ready now'"
-    profiles: ["wait"]
+    profiles: [ "wait" ]
 
   llm-worker:
     build: ./services
@@ -152,3 +152,54 @@ services:
       - ./flink-jars:/opt/flink/lib
     depends_on:
       - flink-jobmanager
+
+  # ============================================
+  # TAREA 3: SERVICIOS DE ANÁLISIS BATCH
+  # ============================================
+
+  hadoop-namenode:
+    build: ./batch_analysis/hadoop
+    container_name: hadoop_namenode
+    hostname: hadoop-namenode
+    ports:
+      - "9870:9870" # HDFS Web UI
+      - "9000:9000" # HDFS port
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+      - ./batch_analysis/data:/data
+      - ./batch_analysis/pig:/pig_scripts
+      - ./batch_analysis/results:/results
+    environment:
+      - CLUSTER_NAME=hadoop-cluster
+    command: bash -c "/opt/init-hdfs.sh"
+
+  hadoop-datanode:
+    build: ./batch_analysis/hadoop
+    container_name: hadoop_datanode
+    hostname: hadoop-datanode
+    depends_on:
+      - hadoop-namenode
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    environment:
+      - CLUSTER_NAME=hadoop-cluster
+    command: bash -c "sleep 20 && hdfs datanode"
+
+  batch-extractor:
+    build: ./batch_analysis
+    container_name: batch_extractor
+    depends_on:
+      - postgres
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=ds_db
+      - POSTGRES_USER=ds_user
+      - POSTGRES_PASSWORD=ds_pass
+    volumes:
+      - ./batch_analysis:/app
+      - ./batch_analysis/data:/data
+    profiles: [ "batch" ] # Solo se ejecuta cuando se especifica el perfil
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
